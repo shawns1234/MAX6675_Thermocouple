@@ -52,9 +52,13 @@ double SmoothThermocouple::smoothe(
 }
 
 /**
-  See about the max(*) function:
-  https://www.arduino.cc/reference/en/language/functions/math/max/
+  Compares by value instead of calling max(). Some cores implement
+  max() with const reference parameters, which odr-uses
+  MIN_SMOOTHING_FACTOR. With no out-of-line definition of the constant,
+  that fails to link in unoptimised (-O0) builds.
 */
 inline void SmoothThermocouple::setSmoothingFactor(const int smoothingFactor) {
-  this->smoothingFactor = max(smoothingFactor, MIN_SMOOTHING_FACTOR);
+  this->smoothingFactor = (smoothingFactor < MIN_SMOOTHING_FACTOR)
+    ? MIN_SMOOTHING_FACTOR
+    : smoothingFactor;
 }
