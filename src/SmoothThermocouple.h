@@ -28,7 +28,13 @@
   v.2.0.2
   - replaced "define" constants with "static const"
 
+  v.2.0.3
+  - fixed readings staying NAN after one NAN reading;
+  - fixed a smoothed value of 0 restarting the average;
+  - fixed undefined reference to MIN_SMOOTHING_FACTOR in -O0 builds.
+
   https://github.com/YuriiSalimov/MAX6675_Thermocouple
+  Maintained fork: https://github.com/shawns1234/MAX6675_Thermocouple
 
   Created by Yurii Salimov, May, 2019.
   Released into the public domain.

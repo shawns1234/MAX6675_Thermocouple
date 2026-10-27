@@ -30,7 +30,12 @@
 	- optimized celsiusToFahrenheit() method;
 	- updated documentation.
 
+	v.2.0.3
+	- shortened the serial read from about 33 ms to about 33 us,
+	using the MAX6675 datasheet timing.
+
 	https://github.com/YuriiSalimov/MAX6675_Thermocouple
+	Maintained fork: https://github.com/shawns1234/MAX6675_Thermocouple
 
 	Created by Yurii Salimov, February, 2018.
 	Released into the public domain.
