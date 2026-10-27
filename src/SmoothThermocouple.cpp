@@ -17,31 +17,38 @@ SmoothThermocouple::~SmoothThermocouple() {
 }
 
 double SmoothThermocouple::readCelsius() {
-  return this->celsius = smoothe(
+  return smoothe(
     this->origin->readCelsius(),
-    this->celsius
+    this->celsius, this->hasCelsius
   );
 }
 
 double SmoothThermocouple::readKelvin() {
-  return this->kelvin = smoothe(
+  return smoothe(
     this->origin->readKelvin(),
-    this->kelvin
+    this->kelvin, this->hasKelvin
   );
 }
 
 double SmoothThermocouple::readFahrenheit() {
-  return this->fahrenheit = smoothe(
+  return smoothe(
     this->origin->readFahrenheit(),
-    this->fahrenheit
+    this->fahrenheit, this->hasFahrenheit
   );
 }
 
 double SmoothThermocouple::smoothe(
-  const double input, const double data
+  const double input, double& data, bool& hasData
 ) {
-  return (data == 0) ? input :
-    ((data * (this->smoothingFactor - 1) + input) / this->smoothingFactor);
+  if (isnan(input)) {
+    hasData = false;
+    return input;
+  }
+  data = hasData
+    ? ((data * (this->smoothingFactor - 1) + input) / this->smoothingFactor)
+    : input;
+  hasData = true;
+  return data;
 }
 
 /**

@@ -46,9 +46,16 @@ class SmoothThermocouple final : public Thermocouple {
 
     Thermocouple* origin;
     int smoothingFactor;
+
+    // Smoothed value and seed flag for each unit. A flag is used
+    // instead of a zero sentinel so that a valid reading of 0
+    // keeps the running average.
     double celsius = 0;
     double kelvin = 0;
     double fahrenheit = 0;
+    bool hasCelsius = false;
+    bool hasKelvin = false;
+    bool hasFahrenheit = false;
 
   public:
     /**
@@ -71,21 +78,24 @@ class SmoothThermocouple final : public Thermocouple {
     /**
       Reads a temperature in Celsius from the thermocouple.
 
-      @return average temperature in degree Celsius
+      @return smoothed temperature in degree Celsius,
+      or NAN if the origin reading is NAN
     */
     double readCelsius() override;
 
     /**
       Reads a temperature in Kelvin from the thermocouple.
 
-      @return smoothed temperature in degree Kelvin
+      @return smoothed temperature in degree Kelvin,
+      or NAN if the origin reading is NAN
     */
     double readKelvin() override;
 
     /**
       Reads a temperature in Fahrenheit from the thermocouple.
 
-      @return smoothed temperature in degree Fahrenheit
+      @return smoothed temperature in degree Fahrenheit,
+      or NAN if the origin reading is NAN
     */
     double readFahrenheit() override;
 
@@ -93,12 +103,17 @@ class SmoothThermocouple final : public Thermocouple {
     /**
       Perform smoothing of the input value.
 
+      The first valid input seeds the average. A NAN input
+      (for example, an open thermocouple) is returned as is and
+      clears the average, so the next valid input seeds a new one
+      instead of being blended with a value from before the fault.
+
       @param input - the value to smooth
-      @param data - the data for smoothing of the input value
-      @return smoothed value or the input value
-      if the input data is 0.
+      @param data - the smoothed value, updated in place
+      @param hasData - whether data holds a seeded value, updated in place
+      @return smoothed value, or NAN if the input is NAN
     */
-    inline double smoothe(double input, double data);
+    inline double smoothe(double input, double& data, bool& hasData);
 
     /**
       Sets the smoothing factor.
