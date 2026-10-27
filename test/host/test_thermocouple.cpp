@@ -1,10 +1,11 @@
 /**
-  Host tests for SmoothThermocouple.
+  Host tests for SmoothThermocouple and MAX6675_Thermocouple.
 
   Build and run from the repository root:
     g++ -std=c++11 -O0 -Wall -Wextra -DARDUINO=100 \
       -Itest/host -Isrc test/host/test_thermocouple.cpp \
-      src/SmoothThermocouple.cpp -o /tmp/test_thermocouple
+      src/SmoothThermocouple.cpp src/MAX6675_Thermocouple.cpp \
+      -o /tmp/test_thermocouple
     /tmp/test_thermocouple
 
   -O0 matches a debug build, where an odr-used static const member
@@ -13,17 +14,82 @@
 #include <stdio.h>
 
 #include "Arduino.h"
+#include "MAX6675_Thermocouple.h"
 #include "SmoothThermocouple.h"
-
-void pinMode(int, int) {}
-void digitalWrite(int, int) {}
-int digitalRead(int) { return LOW; }
-void delay(unsigned long) {}
-void delayMicroseconds(unsigned int) {}
 
 namespace {
 
 int failures = 0;
+
+// Model of the MAX6675 serial interface. CS low starts a frame with
+// D15 on SO, and each SCK rising edge moves to the next bit, so a
+// read that samples SO while SCK is low gets D15 first.
+// The model also checks that every pin change and every SO sample is
+// preceded by a delay since the previous pin change. Any delay of
+// 1 us or more meets the 100 ns MAX6675 timing minimums.
+const int SCK_PIN = 1;
+const int CS_PIN = 2;
+const int SO_PIN = 3;
+
+struct Max6675Model {
+  uint16_t frame = 0;
+  int bit = 15;
+  int cs = HIGH;
+  int sck = LOW;
+  bool delayedSinceChange = true;
+  int timingViolations = 0;
+  unsigned long totalMillis = 0;
+  unsigned long totalMicros = 0;
+} chip;
+
+void checkDelay() {
+  if (!chip.delayedSinceChange) {
+    ++chip.timingViolations;
+  }
+}
+
+}  // namespace
+
+void pinMode(int, int) {}
+
+void digitalWrite(int pin, int value) {
+  if (pin == CS_PIN && value != chip.cs) {
+    checkDelay();
+    chip.cs = value;
+    chip.bit = 15;
+    chip.delayedSinceChange = false;
+  } else if (pin == SCK_PIN && value != chip.sck) {
+    // Only edges during a frame are timed; the bus is idle otherwise.
+    if (chip.cs == LOW) {
+      checkDelay();
+      if (value == HIGH) {
+        --chip.bit;
+      }
+      chip.delayedSinceChange = false;
+    }
+    chip.sck = value;
+  }
+}
+
+int digitalRead(int pin) {
+  if (pin != SO_PIN || chip.cs == HIGH || chip.bit < 0) {
+    return LOW;
+  }
+  checkDelay();
+  return (chip.frame >> chip.bit) & 1;
+}
+
+void delay(unsigned long ms) {
+  chip.totalMillis += ms;
+  chip.delayedSinceChange = true;
+}
+
+void delayMicroseconds(unsigned int us) {
+  chip.totalMicros += us;
+  chip.delayedSinceChange = true;
+}
+
+namespace {
 
 // Returns a scripted sequence of readings. Each unit reads from its
 // own copy of the script so the three smoothing states stay independent.
@@ -121,6 +187,46 @@ void testUnitsAreIndependent() {
   expectNear("celsius reseed", t.readCelsius(), 100.0);
 }
 
+// Reads one frame through the driver. Returns the temperature and
+// leaves the timing counters in chip.
+double readFrame(MAX6675_Thermocouple& t, uint16_t frame) {
+  chip.frame = frame;
+  chip.timingViolations = 0;
+  chip.totalMillis = 0;
+  chip.totalMicros = 0;
+  // Reads are far apart in practice (one conversion takes up to 220 ms).
+  chip.delayedSinceChange = true;
+  return t.readCelsius();
+}
+
+void testMax6675Decode() {
+  MAX6675_Thermocouple t(SCK_PIN, CS_PIN, SO_PIN);
+  // D14..D3 hold the temperature in 0.25 C steps; D2 is the open
+  // thermocouple flag.
+  const uint16_t frames[] = {0x0000, 0x0008, 0x1900, 0x5550, 0x2AA8, 0x7FF8};
+  for (uint16_t frame : frames) {
+    char name[32];
+    snprintf(name, sizeof(name), "decode 0x%04X", frame);
+    expectNear(name, readFrame(t, frame), (frame >> 3) * 0.25);
+    if (chip.timingViolations != 0) {
+      printf("FAIL %s: %d timing violation(s)\n", name, chip.timingViolations);
+      ++failures;
+    }
+  }
+  expectNan("open thermocouple", readFrame(t, 0x1904));
+}
+
+void testMax6675ReadTime() {
+  MAX6675_Thermocouple t(SCK_PIN, CS_PIN, SO_PIN);
+  readFrame(t, 0x1900);
+  // One setup delay after CS falls, then two per bit.
+  if (chip.totalMillis != 0 || chip.totalMicros != 33) {
+    printf("FAIL read time: expected 0 ms + 33 us of delay, got %lu ms + %lu us\n",
+      chip.totalMillis, chip.totalMicros);
+    ++failures;
+  }
+}
+
 void testMinimumSmoothingFactor() {
   const double values[] = {100.0, 0.0};
   // A factor below the minimum of 2 is raised to 2.
@@ -139,6 +245,8 @@ int main() {
   testZeroSeed();
   testUnitsAreIndependent();
   testMinimumSmoothingFactor();
+  testMax6675Decode();
+  testMax6675ReadTime();
   if (failures == 0) {
     printf("OK: all tests passed\n");
     return 0;
